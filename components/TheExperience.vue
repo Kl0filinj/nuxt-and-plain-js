@@ -17,13 +17,34 @@ import {
   DirectionalLightHelper,
   CameraHelper,
   TextureLoader,
+  Group,
+  type Object3DEventMap,
 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { useWindowSize } from '@vueuse/core'
+import { Body, Box, Vec3, World } from 'cannon-es'
+import Ammo from 'ammojs-typed'
 
+// *** Main vars
 let renderer: WebGLRenderer
 let controls: OrbitControls
+let world: World
+
+let bodyModel: Group<Object3DEventMap>
+let boxBody: Body
+
+// *** Physic vars
+let gravityConstant = -9.8
+let physicsWorld: Ammo.btSoftRigidDynamicsWorld
+let rigidBodies = []
+let softBodies = []
+let margin = 0.05
+// let transformAux1 = new Ammo.btTransform()
+// let softBodyHelpers = new Ammo.btSoftBodyHelpers()
+
+let armMovement = 0
+
 const experience: Ref<HTMLCanvasElement | null> = ref(null)
 
 const { width, height } = useWindowSize()
@@ -62,15 +83,15 @@ const modelsLoader = new GLTFLoader()
 modelsLoader.load(
   '/DummyMan.glb',
   function (gltf) {
-    const model = gltf.scene
-    scene.add(model)
+    bodyModel = gltf.scene
+    scene.add(bodyModel)
 
-    model.traverse((node: any) => {
+    bodyModel.traverse((node: any) => {
       if (node.isMesh) {
         node.castShadow = true
       }
     })
-    model.position.set(0, 0, 0)
+    bodyModel.position.set(0, 0, 0)
   },
   undefined,
 )
@@ -87,6 +108,32 @@ scene.add(mainDirectionalLightHelper)
 
 const mainDirectionalLightShadowHelper = new CameraHelper(mainDirectionalLight.shadow.camera)
 scene.add(mainDirectionalLightShadowHelper)
+
+function initCannon() {
+  world = new World()
+  world.gravity.set(0, -9.82, 0)
+
+  const boxShape = new Box(new Vec3(1, 1, 1))
+  boxBody = new Body({ mass: 1, shape: boxShape })
+  world.addBody(boxBody)
+}
+
+function initAmmo() {
+  var collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration()
+  var dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration)
+  var broadphase = new Ammo.btDbvtBroadphase()
+  var solver = new Ammo.btSequentialImpulseConstraintSolver()
+  var softBodySolver = new Ammo.btDefaultSoftBodySolver()
+  physicsWorld = new Ammo.btSoftRigidDynamicsWorld(
+    dispatcher,
+    broadphase,
+    solver,
+    collisionConfiguration,
+    softBodySolver,
+  )
+  physicsWorld.setGravity(new Ammo.btVector3(0, gravityConstant, 0))
+  physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0, gravityConstant, 0))
+}
 
 function updateCamera() {
   camera.aspect = aspectRatio.value
@@ -115,14 +162,23 @@ watch(aspectRatio, () => {
   updateRenderer()
 })
 
-onMounted(() => {
+onMounted(async () => {
+  console.log({ Ammo })
   setRenderer()
+  // initCannon()
+  initAmmo()
   loop()
 })
 
 const loop = () => {
+  // if (bodyModel && boxBody) {
+  //   bodyModel.position.copy(boxBody.position)
+  //   bodyModel.quaternion.copy(boxBody.quaternion)
+  // }
+
   controls.update()
   renderer.render(scene, camera)
+  physicsWorld.stepSimulation(1 / 60, 10)
   requestAnimationFrame(loop)
 }
 </script>
